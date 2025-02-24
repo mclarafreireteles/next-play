@@ -28,71 +28,124 @@ games = [
 ]
 
 # Classe para os nós da árvore de decisão
-class BTreeNode:
+class AVLTreeNode:
     def __init__(self, criterion=None, is_leaf=False):
         self.criterion = criterion  # Critério atual (ex: "Categoria", "Duração")
         self.is_leaf = is_leaf  # Indica se é um nó folha
         self.games = []  # Lista de jogos (só preenchida se for folha)
         self.children = {}  # Filhos do nó (chave: valor do critério, valor: nó filho)
+        self.height = 1  # Altura do nó
 
-# Classe para a árvore de decisão
-class BTree:
+class AVLTree:
     def __init__(self, criteria_order=["Categoria", "Duração", "Jogadores"]):
-        self.root = BTreeNode(criterion=criteria_order[0])
+        self.root = AVLTreeNode(criterion=criteria_order[0])
         self.criteria_order = criteria_order  # Define a hierarquia dos critérios
 
     def insert(self, game):
-        current_node = self.root
-        # Atributos do jogo: (nome, categoria, duração, jogadores, descrição)
-        category, duration, players = game[1], game[2], game[3]
-        
-        # Percorre a hierarquia de critérios
-        for i in range(len(self.criteria_order)):
-            criterion = self.criteria_order[i]
-            # Obtém o valor do critério atual para o jogo
-            if criterion == "Categoria":
-                value = category
-            elif criterion == "Duração":
-                value = duration
-            elif criterion == "Jogadores":
-                value = players
-            
-            # Cria um novo nó se não existir
-            if value not in current_node.children:
-                is_leaf = (i == len(self.criteria_order) - 1)
-                current_node.children[value] = BTreeNode(
-                    criterion=self.criteria_order[i + 1] if not is_leaf else None,
-                    is_leaf=is_leaf
-                )
-            
-            current_node = current_node.children[value]
-        
-        # Insere o jogo na folha (último nó do caminho)
-        current_node.games.append(game)
+        self.root = self._insert(self.root, game, 0)
+
+    def _insert(self, node, game, depth):
+        if depth >= len(self.criteria_order):
+            node.games.append(game)
+            return node
+
+        criterion = self.criteria_order[depth]
+        if criterion == "Categoria":
+            value = game[1]
+        elif criterion == "Duração":
+            value = game[2]
+        elif criterion == "Jogadores":
+            value = game[3]
+
+        if value not in node.children:
+            is_leaf = (depth == len(self.criteria_order) - 1)
+            node.children[value] = AVLTreeNode(
+                criterion=self.criteria_order[depth + 1] if not is_leaf else None,
+                is_leaf=is_leaf
+            )
+
+        node.children[value] = self._insert(node.children[value], game, depth + 1)
+
+        # Atualiza a altura do nó atual
+        node.height = 1 + max(self._get_height(child) for child in node.children.values())
+
+        # Balanceia o nó
+        balance = self._get_balance(node)
+
+        # Casos de desbalanceamento
+        if balance > 1:
+            if self._get_balance(list(node.children.values())[0]) >= 0:
+                return self._rotate_right(node)
+            else:
+                node.children[list(node.children.keys())[0]] = self._rotate_left(list(node.children.values())[0])
+                return self._rotate_right(node)
+        if balance < -1:
+            if self._get_balance(list(node.children.values())[-1]) <= 0:
+                return self._rotate_left(node)
+            else:
+                node.children[list(node.children.keys())[-1]] = self._rotate_right(list(node.children.values())[-1])
+                return self._rotate_left(node)
+
+        return node
+
+    def _get_height(self, node):
+        if not node:
+            return 0
+        return node.height
+
+    def _get_balance(self, node):
+        if not node:
+            return 0
+        return self._get_height(list(node.children.values())[0]) - self._get_height(list(node.children.values())[-1])
+
+    def _rotate_right(self, y):
+        x = list(y.children.values())[0]
+        T2 = x.children.get(list(x.children.keys())[-1], None)
+
+        # Realiza a rotação
+        x.children[list(x.children.keys())[-1]] = y
+        y.children[list(y.children.keys())[0]] = T2
+
+        # Atualiza alturas
+        y.height = 1 + max(self._get_height(child) for child in y.children.values())
+        x.height = 1 + max(self._get_height(child) for child in x.children.values())
+
+        return x
+
+    def _rotate_left(self, x):
+        y = list(x.children.values())[-1]
+        T2 = y.children.get(list(y.children.keys())[0], None)
+
+        # Realiza a rotação
+        y.children[list(y.children.keys())[0]] = x
+        x.children[list(x.children.keys())[-1]] = T2
+
+        # Atualiza alturas
+        x.height = 1 + max(self._get_height(child) for child in x.children.values())
+        y.height = 1 + max(self._get_height(child) for child in y.children.values())
+
+        return y
 
     def recommend_from_tree(self, preferences):
-        # preferences = {"Categoria": "Estratégia", "Duração": "curto", "Jogadores": "2"}
         current_node = self.root
         path = []
-        
+
         for criterion in self.criteria_order:
             value = preferences.get(criterion, "")
             if value in current_node.children:
                 current_node = current_node.children[value]
                 path.append(value)
             else:
-                # Se não houver caminho exato, busca aproximada (ex: jogadores)
                 closest_match = self.find_closest_match(current_node, criterion, preferences)
                 if closest_match:
                     current_node = current_node.children[closest_match]
                     path.append(closest_match)
                 else:
-                    return []  # Sem correspondência
-        
-        return current_node.games  # Jogos recomendados
+                    return []
+
+        return current_node.games
 
     def find_closest_match(self, node, criterion, preferences):
-        # Lógica para encontrar o valor mais próximo (ex: intervalo de jogadores)
         if criterion == "Jogadores":
             input_players = int(preferences["Jogadores"])
             for key in node.children.keys():
@@ -102,10 +155,6 @@ class BTree:
 
     @staticmethod
     def player_matches(game_players, input_players):
-        """
-        Verifica se o número informado de jogadores (input_players)
-        se encaixa na faixa definida em game_players.
-        """
         if '-' in game_players:
             parts = game_players.split('-')
             lower_bound = int(parts[0])
@@ -118,12 +167,11 @@ class BTree:
             game_num = int(game_players)
             return input_players == game_num
 
-# Classe do sistema de recomendação
 class RecommendationSystem:
     def __init__(self):
-        self.history = []  # Pilha para histórico de recomendações
-        self.tree = BTree()  # Árvore de decisão
-        self.category_feedback = {}  # Feedback (pontuação) para cada categoria
+        self.history = []
+        self.tree = AVLTree()
+        self.category_feedback = {}
 
     def add_game(self, game):
         self.tree.insert(game)
